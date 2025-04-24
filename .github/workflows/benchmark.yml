@@ -1,0 +1,88 @@
+# .github/workflows/runner-benchmark.yml
+name: Runner Benchmark
+
+# Allow manual runs and (optionally) a weekly schedule
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'   # every Sunday at UTC midnight
+
+jobs:
+  benchmark:
+    name: Benchmark on self-hosted Ubuntu
+    runs-on: [self-hosted, linux, x64]
+
+    strategy:
+      matrix:
+        threads: [1, 2, 4, 8]    # vary thread‐counts
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install benchmark tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sysbench fio docker.io time
+
+      - name: CPU benchmark (threads=${{ matrix.threads }})
+        run: |
+          echo "=== CPU @ ${{ matrix.threads }} threads ==="
+          sysbench --threads=${{ matrix.threads }} cpu run \
+            | tee cpu-${{ matrix.threads }}.log
+
+      - name: Memory benchmark (threads=${{ matrix.threads }})
+        run: |
+          echo "=== Memory @ ${{ matrix.threads }} threads ==="
+          sysbench --threads=${{ matrix.threads }} memory run \
+            | tee memory-${{ matrix.threads }}.log
+
+      - name: File I/O benchmark (seq write)
+        run: |
+          echo "=== File I/O (seqwr) @ ${{ matrix.threads }} threads ==="
+          sysbench fileio \
+            --threads=${{ matrix.threads }} \
+            --file-test-mode=seqwr \
+            --file-total-size=1G prepare
+          sysbench fileio \
+            --threads=${{ matrix.threads }} \
+            --file-test-mode=seqwr \
+            --file-total-size=1G run \
+            | tee fileio-seqwr-${{ matrix.threads }}.log
+          sysbench fileio \
+            --threads=${{ matrix.threads }} \
+            --file-test-mode=seqwr \
+            --file-total-size=1G cleanup
+
+      - name: Random Read/Write I/O (fio)
+        run: |
+          echo "=== fio random read/write ==="
+          fio --name=randrw \
+              --ioengine=libaio \
+              --iodepth=16 \
+              --rw=randrw \
+              --bs=4k \
+              --direct=1 \
+              --size=1G \
+              --numjobs=4 \
+              --runtime=60 \
+              --group_reporting \
+            | tee fio-randrw.log
+
+      - name: Docker container startup time
+        run: |
+          echo "=== Docker startup ==="
+          # measure cold start time for a tiny container
+          { time docker run --rm hello-world; } 2>&1 \
+            | tee docker-startup.log
+
+      - name: Upload all logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: runner-benchmark-logs
+          path: |
+            cpu-*.log
+            memory-*.log
+            fileio-*.log
+            fio-randrw.log
+            docker-startup.log

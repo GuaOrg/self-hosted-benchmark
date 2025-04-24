@@ -1,7 +1,6 @@
 # .github/workflows/runner-benchmark.yml
 name: Runner Benchmark
 
-# Allow manual runs and (optionally) a weekly schedule
 on:
   workflow_dispatch:
   schedule:
@@ -11,15 +10,19 @@ jobs:
   benchmark:
     name: Benchmark on self-hosted Ubuntu
     runs-on: self-hosted
-    
+
+    strategy:
+      matrix:
+        threads: [1, 2, 4, 8]
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install benchmark tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y sysbench fio docker.io time
+          apt-get update
+          apt-get install -y sysbench fio docker.io time
 
       - name: CPU benchmark (threads=${{ matrix.threads }})
         run: |
@@ -68,7 +71,6 @@ jobs:
       - name: Docker container startup time
         run: |
           echo "=== Docker startup ==="
-          # measure cold start time for a tiny container
           { time docker run --rm hello-world; } 2>&1 \
             | tee docker-startup.log
 

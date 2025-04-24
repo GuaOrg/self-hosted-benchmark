@@ -10,7 +10,7 @@ on:
 jobs:
   benchmark:
     name: Benchmark on self-hosted Ubuntu
-    runs-on: [self-hosted]
+    runs-on: self-hosted
 
     strategy:
       matrix:

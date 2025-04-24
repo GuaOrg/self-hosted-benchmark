@@ -11,11 +11,7 @@ jobs:
   benchmark:
     name: Benchmark on self-hosted Ubuntu
     runs-on: self-hosted
-
-    strategy:
-      matrix:
-        threads: [1, 2, 4, 8]    # vary thread‐counts
-
+    
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3

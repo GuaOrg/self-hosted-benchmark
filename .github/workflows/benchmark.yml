@@ -2,15 +2,11 @@
 name: Runner Benchmark
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * 0'   # every Sunday at UTC midnight
+  workflow_dispatch
 
 jobs:
   benchmark:
-    name: Benchmark on self-hosted Ubuntu
     runs-on: self-hosted
-
     strategy:
       matrix:
         threads: [1, 2, 4, 8]
@@ -19,58 +15,37 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install benchmark tools
+      - name: CPU benchmark (openssl sha256)
         run: |
-          apt-get update
-          apt-get install -y sysbench fio docker.io time
+          for t in ${{ matrix.threads }}; do
+            echo "=== CPU: openssl sha256 multi=$t ==="
+            openssl speed -elapsed -multi $t sha256 \
+              | tee cpu-${t}.log
+          done
 
-      - name: CPU benchmark (threads=${{ matrix.threads }})
+      - name: Memory throughput (dd to /dev/null)
         run: |
-          echo "=== CPU @ ${{ matrix.threads }} threads ==="
-          sysbench --threads=${{ matrix.threads }} cpu run \
-            | tee cpu-${{ matrix.threads }}.log
+          echo "=== Memory: dd zero→null (1 GiB) ==="
+          { time dd if=/dev/zero of=/dev/null bs=1M count=1024; } 2>&1 \
+            | tee memory.log
 
-      - name: Memory benchmark (threads=${{ matrix.threads }})
+      - name: Disk sequential write (dd)
         run: |
-          echo "=== Memory @ ${{ matrix.threads }} threads ==="
-          sysbench --threads=${{ matrix.threads }} memory run \
-            | tee memory-${{ matrix.threads }}.log
+          echo "=== Disk seq-write: dd zero→file (1 GiB) ==="
+          { time dd if=/dev/zero of=benchfile bs=1M count=1024 conv=fdatasync; } 2>&1 \
+            | tee disk-seqwr.log
+          rm -f benchfile
 
-      - name: File I/O benchmark (seq write)
+      - name: Disk random write (dd)
         run: |
-          echo "=== File I/O (seqwr) @ ${{ matrix.threads }} threads ==="
-          sysbench fileio \
-            --threads=${{ matrix.threads }} \
-            --file-test-mode=seqwr \
-            --file-total-size=1G prepare
-          sysbench fileio \
-            --threads=${{ matrix.threads }} \
-            --file-test-mode=seqwr \
-            --file-total-size=1G run \
-            | tee fileio-seqwr-${{ matrix.threads }}.log
-          sysbench fileio \
-            --threads=${{ matrix.threads }} \
-            --file-test-mode=seqwr \
-            --file-total-size=1G cleanup
+          echo "=== Disk rand-write: dd urandom→file (1 MiB total) ==="
+          { time dd if=/dev/urandom of=randfile bs=4k count=256 conv=fdatasync; } 2>&1 \
+            | tee disk-randwr.log
+          rm -f randfile
 
-      - name: Random Read/Write I/O (fio)
+      - name: Docker container startup
         run: |
-          echo "=== fio random read/write ==="
-          fio --name=randrw \
-              --ioengine=libaio \
-              --iodepth=16 \
-              --rw=randrw \
-              --bs=4k \
-              --direct=1 \
-              --size=1G \
-              --numjobs=4 \
-              --runtime=60 \
-              --group_reporting \
-            | tee fio-randrw.log
-
-      - name: Docker container startup time
-        run: |
-          echo "=== Docker startup ==="
+          echo "=== Docker startup (hello-world) ==="
           { time docker run --rm hello-world; } 2>&1 \
             | tee docker-startup.log
 
@@ -80,7 +55,6 @@ jobs:
           name: runner-benchmark-logs
           path: |
             cpu-*.log
-            memory-*.log
-            fileio-*.log
-            fio-randrw.log
+            memory.log
+            disk-*.log
             docker-startup.log
